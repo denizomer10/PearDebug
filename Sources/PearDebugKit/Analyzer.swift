@@ -52,6 +52,14 @@ public struct Analysis: Codable, Sendable {
     public var levelCounts: [String: Int]
     public var topAreas: [String: Int]
     public var findings: [Finding]
+
+    public init(source: LogSource, lineCount: Int, levelCounts: [String: Int], topAreas: [String: Int], findings: [Finding]) {
+        self.source = source
+        self.lineCount = lineCount
+        self.levelCounts = levelCounts
+        self.topAreas = topAreas
+        self.findings = findings
+    }
 }
 
 public struct Analyzer: Sendable {
@@ -178,6 +186,16 @@ enum LegacyEngineRules {
                     title: "Guest file opens failed", minimumHits: 1) {
             $0.message.contains("open(") && $0.message.contains("failed")
         },
+        PatternRule(id: "legacy.null-page", sources: [.legacyEngine], severity: .critical,
+                    title: "The game read or wrote the null page",
+                    suggestion: "A pointer the game expected to be set was empty, usually because an earlier load failed. Capture registers and the call chain with `peardebug legacy crash` (engine started with --gdb), then look at what that pointer should have come from.") {
+            $0.message.contains("Attempted null-page access")
+        },
+        PatternRule(id: "legacy.open-directory", sources: [.legacyEngine], severity: .warning,
+                    title: "The game opened a folder where it expected a file",
+                    suggestion: "Usually an asset lookup that produced an empty file name (for example an archive index miss). Run with PEAR_TRACE_OPEN=1 to see every path the game opens.") {
+            $0.message.contains("open() of directory") || $0.message.contains("Seeking a directory as a guest file")
+        },
         UnimplementedRule(),
         PresentStallRule(),
     ])
@@ -236,8 +254,24 @@ enum WineRules {
         },
         PatternRule(id: "wine.rosetta", sources: [.wine], severity: .problem,
                     title: "Rosetta 2 is missing or failed",
-                    suggestion: "Install Rosetta (`softwareupdate --install-rosetta`) or use the native arm64 PearWine build.") {
+                    suggestion: "Install Rosetta (`softwareupdate --install-rosetta`) or use the native arm64 MetalSharp Wine engine.") {
             $0.message.contains("Bad CPU type") || $0.message.lowercased().contains("rosetta")
+        },
+        PatternRule(id: "wine.steam-cef-storage", sources: [.wine], severity: .critical,
+                    title: "Steam's browser (CEF StorageService) failed to start",
+                    suggestion: "MetalSharp's launcher rule for \\Steam\\bin\\cef\\ adds flags to every Steam CEF child. Start Steam from PearSilicon 0.8.6 or later, which runs it through C:\\PearSiliconSteam. `peardebug steam <Steam folder>` checks the client's state.") {
+            $0.message.contains("target_services.cc") || $0.message.contains("process_state_.InitCalled")
+        },
+        PatternRule(id: "wine.breakpoint", sources: [.wine], severity: .info,
+                    title: "Programs hit breakpoint exceptions (0x80000003)",
+                    suggestion: "Chromium/CEF and some launchers raise these on purpose; they matter only if the program then closes. Check whether its window stays open.",
+                    minimumHits: 3) {
+            $0.message.contains("Unhandled exception 0x80000003")
+        },
+        PatternRule(id: "wine.mullion-flight", sources: [.wine], severity: .warning,
+                    title: "MetalSharp recorded an exception (Mullion flight record)",
+                    suggestion: "The .flight file named in the line holds the exception context; it is under the entry's Data/Library/Logs/Mullion.") {
+            $0.message.contains("mullion: flight record")
         },
     ])
 }
@@ -246,6 +280,17 @@ enum CommonRules {
     static let module = RuleModule(name: "Common", rules: [
         PatternRule(id: "common.fatal", sources: [], severity: .critical, title: "Fatal errors") {
             $0.level == .fatal && $0.area != "panic"
+        },
+        PatternRule(id: "host.update-commit-mismatch", sources: [], severity: .problem,
+                    title: "An update was rejected: its app was built from another commit than its release tag",
+                    suggestion: "The release ZIP was built before the commit it was tagged with. Publish with scripts/publish-release.sh, which builds from the tagged commit and verifies the uploaded app.") {
+            $0.message.contains("PearBuildCommit disagrees")
+        },
+        PatternRule(id: "host.github-rate-limit", sources: [], severity: .warning,
+                    title: "GitHub's API rate limit was reached",
+                    suggestion: "Anonymous API use is limited to 60 requests per hour. Engine downloads fall back to the public release pages; wait an hour if something still fails.") {
+            let message = $0.message
+            return message.contains("rate limit") || message.contains("rate-limiting requests")
         },
     ])
 }

@@ -6,7 +6,7 @@ public enum LogSource: String, Codable, CaseIterable, Sendable {
     case legacyEngine = "legacy"
     /// PearRuntime inside a modern arm64 iOS app.
     case runtime
-    /// Wine / PearWine and its graphics layers (DXVK, DXMT, MoltenVK).
+    /// Wine (MetalSharp, WineHQ) and its graphics layers (DXVK, DXMT, MoltenVK).
     case wine
     /// A native or managed macOS app launched by PearSilicon.
     case macApp = "mac"
